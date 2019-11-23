@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>WritableStream with Native File System API</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        img {
+            height: 30%;
+        }
+
+        button {
+            appearance: none;
+            padding: 10px 20px;
+            background: none;
+            font-size: 16px;
+            border-radius: 3px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<button id="load">download</button>
+<script>
+    (function () {
+        'use strict';
+
+        const btn = document.getElementById('load');
+
+        btn.addEventListener('click', async () => {
+            let handle;
+
+            try {
+                handle = await window.chooseFileSystemEntries({
+                    type: "saveFile",
+                    accepts: [{
+                        description: "html",
+                        extensions: ["html"],
+                        mimeTypes: ["text/HTML"]
+                    }]
+                });
+            } catch (err) {
+                alert("can't process.")
+            }
+
+            if (handle) {
+                fetch('https://streams.spec.whatwg.org/').then(async (res) => {
+                    const readableStream = res.body;
+                    const writer = await handle.createWriter();
+                    let offset = 0;
+                    const writableStream = new WritableStream({
+                        start() {
+                            return writer.truncate(0);
+                        },
+                        write(chunk, controller) {
+                            return new Promise(async (resolve, reject) => {
+                                try {
+                                    await writer.write(offset, chunk);
+                                    offset += chunk.length;
+                                    resolve();
+                                } catch(err) {
+                                    controller.error(err);
+                                    reject(err);
+                                }
+                            });
+                        },
+                        close() {
+                            writer.close();
+                        }
+                    });
+
+                    await readableStream.pipeTo(writableStream);
+                }).catch(err => {
+                    console.error(err);
+                });
+            }
+        })
+    }());
+</script>
+</body>
+</html>

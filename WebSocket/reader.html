@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Read stream from web socket</title>
+</head>
+<body>
+<script>
+    (function () {
+        'use strict';
+
+        const socket = new WebSocket('ws://localhost:5001');
+        const img = new Image();
+        let buffer = [];
+
+        const readableStream = new ReadableStream({
+            start(controller) {
+                socket.addEventListener('message', (e) => {
+                    controller.enqueue(e.data);
+                });
+                socket.addEventListener('close', () => {
+                    controller.close();
+                });
+                socket.addEventListener('error', (err) => {
+                    controller.error(err);
+                });
+
+                return new Promise(resolve => socket.onopen = resolve);
+            },
+            cancel() {
+                socket.close();
+                console.log('cancel');
+            }
+        });
+
+        const writableStream = new WritableStream({
+            /**
+             * @param {Blob} blob
+             */
+            write(blob) {
+                // DataURL is not good because its max length.
+                blob.arrayBuffer().then(buf => {
+                    buffer.push(buf);
+                    img.src = URL.createObjectURL(new Blob(buffer));
+                });
+            },
+            close() {
+                console.log('closed');
+            },
+            abort(reason) {
+                console.log('aborted:' + reason);
+            }
+        });
+
+        img.style.maxWidth = '500px';
+        document.body.append(img);
+
+        readableStream.pipeTo(writableStream).then(() => {
+            console.log('received complete.');
+        }).catch(err => {
+            console.log(err);
+        });
+    }());
+</script>
+</body>
+</html>

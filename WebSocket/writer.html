@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Write stream to web socket</title>
+</head>
+<body>
+<input type="file" id="input">
+<script>
+    (function () {
+        'use strict';
+
+        // This example can send Image only once.
+
+        const socket = new WebSocket('ws://localhost:5001');
+
+        socket.addEventListener('open', function () {
+            const input = document.getElementById('input');
+            const img = new Image();
+            let buffer = [];
+
+            const sendStream = new WritableStream({
+                start(controller) {
+                    socket.addEventListener('close', function () {
+                        controller.error();
+                    });
+
+                    socket.addEventListener('error', function (err) {
+                        controller.error(err);
+                    });
+                },
+                write(chunk) {
+                    socket.send(chunk);
+                },
+                close() {
+                    if (socket.readyState === 0 || socket.readyState === 1) {
+                        return new Promise(resolve => {
+                            socket.onclose = resolve;
+                            socket.close();
+                        });
+                    }
+                },
+                abort(reason) {
+                    console.log(reason);
+                }
+            });
+
+            const writeStream = new WritableStream({
+                /**
+                 * @param {Uint8Array} chunk
+                 */
+                write(chunk) {
+                    buffer.push(chunk.buffer);
+                    img.src = URL.createObjectURL(new Blob(buffer));
+                }
+            });
+
+            input.addEventListener('change', function () {
+                const [forSend, forWrite] = input.files[0].stream().tee();
+
+                img.style.maxWidth = '500px';
+                document.body.append(img);
+
+                Promise.all([
+                    forSend.pipeTo(sendStream),
+                    forWrite.pipeTo(writeStream)
+                ]).then(() => {
+                    console.log('success');
+                }).catch((err) => {
+                    console.log(err.message);
+                });
+            });
+        });
+    }());
+</script>
+</body>
+</html>
