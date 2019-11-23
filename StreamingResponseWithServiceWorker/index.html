@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Service Worker simple Demo</title>
+</head>
+<body>
+<a href="nothing.html">all page except index.html get same Response from Service Worker.</a>
+<script>
+    (function () {
+        'use strict';
+
+        navigator.serviceWorker.register('./serviceworker.js');
+    }());
+</script>
+</body>
+</html>
