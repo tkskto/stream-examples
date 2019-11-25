@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Using TransformStream for parse and translate markdown document.</title>
+    <style>
+        html,body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+        }
+        .output {
+            display: flex;
+            height: 100%;
+        }
+
+        .output div {
+            width: 50%;
+            height: 100%;
+            padding: 20px;
+        }
+
+        .org {
+            border-right: 1px solid #ccc;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/0.7.0/marked.min.js"></script>
+</head>
+<body>
+<input id="input" type="file">
+<div class="output">
+    <div class="org">
+        <p>original</p>
+        <div id="original"></div>
+    </div>
+    <div class="translated">
+        <p>after translated.</p>
+        <div id="translated"></div>
+    </div>
+</div>
+<script>
+    (function (marked) {
+        'use strict';
+
+        const input = document.getElementById('input');
+
+        function md2HTMLFactory() {
+            return new TransformStream({
+                transform(chunk, controller) {
+                    controller.enqueue(marked(chunk));
+                }
+            });
+        }
+
+        function writableStreamFactory(id) {
+            return new WritableStream({
+                start() {
+                    this.elm = document.getElementById(id);
+                },
+                write(chunk) {
+                    this.elm.innerHTML += chunk;
+                }
+            });
+        }
+
+        const translateStream = new TransformStream({
+            transform(chunk, controller) {
+                return fetch(`https://translation.googleapis.com/language/translate/v2/?key={API_KEY}`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        q: chunk,
+                        target: 'en',
+                        format: 'html'
+                    })
+                }).then(res => res.json()).then(res => {
+                    controller.enqueue(res.data.translations[0].translatedText);
+                });
+            }
+        });
+
+        input.addEventListener('change', function () {
+            const stream = input.files[0].stream();
+            const [org, willBeTranslated] = stream.tee();
+            const originalWriter = writableStreamFactory('original');
+            const translatedWriter = writableStreamFactory('translated');
+
+            Promise.all([
+                org.pipeThrough(new TextDecoderStream('utf-8')).pipeThrough(md2HTMLFactory()).pipeTo(originalWriter),
+                willBeTranslated.pipeThrough(new TextDecoderStream('utf-8')).pipeThrough(md2HTMLFactory()).pipeThrough(translateStream).pipeTo(translatedWriter)
+            ]).then(() => {
+                console.log('complete');
+            }).catch(err => {
+                console.log(err);
+            })
+        });
+    }(window.marked));
+</script>
+</body>
+</html>
