@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BLE Demo</title>
+</head>
+<body>
+<button id="btn">START</button>
+
+<script>
+    (function (ble) {
+        'use strict';
+
+        if (!ble) {
+            return;
+        }
+
+        const btn = document.getElementById('btn');
+
+        function start() {
+            let characteristic;
+
+            const readable = new ReadableStream({
+                async  start(controller) {
+                    try {
+                        const device = await ble.requestDevice({
+                            filters: [
+                                {services: ['heart_rate']}
+                            ]
+                        });
+
+                        const server = await device.gatt.connect();
+                        const service = await server.getPrimaryService('heart_rate');
+
+                        characteristic = await service.getCharacteristic('heart_rate_measurement');
+                        await characteristic.startNotifications();
+
+                        function onChanged() {
+                            controller.enqueue(characteristic.value);
+                            // if you want push source please comment out next line.
+                            characteristic.removeEventListener('characteristicvaluechanged', onChanged);
+                        }
+
+                        characteristic.addEventListener('characteristicvaluechanged', onChanged);
+                    } catch (err) {
+                        controller.error(err);
+                    }
+                },
+                pull(controller) {
+                    if (characteristic) {
+                        controller.enqueue(characteristic.value);
+                        return;
+                    }
+                    controller.close();
+                },
+                close() {
+                    console.log('stream was closed');
+                    characteristic.stopNotifications();
+                },
+                error(err) {
+                    console.log(err.message);
+                },
+            });
+
+            const transform = new TransformStream({
+                /**
+                 * parse DataView Object. see also https://webbluetoothcg.github.io/web-bluetooth/
+                 * @param {DataView} chunk
+                 * @param {TransformStreamDefaultController} controller
+                 */
+                transform(chunk, controller) {
+                    let result = {};
+
+                    if (chunk) {
+                        const flags = chunk.getUint8(0);
+                        const rate16Bits = flags & 0x1;
+                        let index = 1;
+                        if (rate16Bits) {
+                            result.heartRate = chunk.getUint16(index, /*littleEndian=*/true);
+                            index += 2;
+                        } else {
+                            result.heartRate = chunk.getUint8(index);
+                            index += 1;
+                        }
+                        const contactDetected = flags & 0x2;
+                        const contactSensorPresent = flags & 0x4;
+                        if (contactSensorPresent) {
+                            result.contactDetected = !!contactDetected;
+                        }
+                        const energyPresent = flags & 0x8;
+                        if (energyPresent) {
+                            result.energyExpended = chunk.getUint16(index, /*littleEndian=*/true);
+                            index += 2;
+                        }
+                        const rrIntervalPresent = flags & 0x10;
+                        if (rrIntervalPresent) {
+                            let rrIntervals = [];
+                            for (; index + 1 < chunk.byteLength; index += 2) {
+                                rrIntervals.push(chunk.getUint16(index, /*littleEndian=*/true));
+                            }
+                            result.rrIntervals = rrIntervals;
+                        }
+                    }
+
+                    controller.enqueue(result);
+                }
+            });
+
+            const writable = new WritableStream({
+                /**
+                 * @param {DataView} chunk
+                 */
+                write(chunk) {
+                    return new Promise(resolve => {
+                        setTimeout(function () {
+                            console.log(chunk);
+                            resolve();
+                        }, 1000);
+                    });
+                }
+            });
+
+            readable.pipeThrough(transform).pipeTo(writable);
+        }
+
+        btn.addEventListener('click', start);
+
+    }(navigator.bluetooth));
+</script>
+</body>
+</html>
